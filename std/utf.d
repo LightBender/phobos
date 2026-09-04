@@ -3712,50 +3712,36 @@ private:
 enum dchar replacementDchar = '\uFFFD';
 
 /********************************************
- * Iterate a range of char, wchar, or dchars by code unit.
+ * Iterate a range of characters by
+ * $(LINK2 https://en.wikipedia.org/wiki/Code_unit, code unit).
  *
- * The purpose is to bypass the special case decoding that
- * $(REF front, std,range,primitives) does to character arrays. As a result,
- * using ranges with `byCodeUnit` can be `nothrow` while
- * $(REF front, std,range,primitives) throws when it encounters invalid Unicode
- * sequences.
- *
- * A code unit is a building block of the UTF encodings. Generally, an
- * individual code unit does not represent what's perceived as a full
- * character (a.k.a. a grapheme cluster in Unicode terminology). Many characters
- * are encoded with multiple code units. For example, the UTF-8 code units for
- * `ø` are `0xC3 0xB8`. That means, an individual element of `byCodeUnit`
- * often does not form a character on its own. Attempting to treat it as
- * one while iterating over the resulting range will give nonsensical results.
+ * Character arrays are autodecoded to `dchar` by
+ * $(REF front, std,range,primitives). `byCodeUnit` bypasses that decoding
+ * and yields the native code units of the encoding. Because no decoding is
+ * performed, iteration is `nothrow` even when the input contains invalid
+ * Unicode sequences.
  *
  * Params:
- *      r = an $(REF_ALTTEXT input range, isInputRange, std,range,primitives)
- *      of characters (including strings) or a type that implicitly converts to a string type.
+ *      r = An $(REF_ALTTEXT input range, isInputRange, std,range,primitives)
+ *          of characters, a string, or a type that implicitly converts to a
+ *          string.
  * Returns:
- *      If `r` is not an auto-decodable string (i.e. a narrow string or a
- *      user-defined type that implicitly converts to a string type), then `r`
- *      is returned.
+ *      If `r` is an autodecodable string, as defined by
+ *      $(REF isAutodecodableString, std, traits), that does not already
+ *      implement the input range API, `r` is converted to its corresponding
+ *      string type if necessary and wrapped in a random-access range of that
+ *      string's code units. The range supports slicing and provides a
+ *      `source` property that returns the remaining string.
  *
- *      Otherwise, `r` is converted to its corresponding string type (if it's
- *      not already a string) and wrapped in a random-access range where the
- *      element encoding type of the string (its code unit) is the element type
- *      of the range, and that range returned. The range has slicing.
+ *      If `r` is already an input range of characters, `r` is returned
+ *      unchanged. This includes types that are both ranges and implicitly
+ *      convertible to a string; no conversion is performed.
  *
- *      If `r` is quirky enough to be a struct or class which is an input range
- *      of characters on its own (i.e. it has the input range API as member
- *      functions), $(I and) it's implicitly convertible to a string type, then
- *      `r` is returned, and no implicit conversion takes place.
- *
- *      If `r` is wrapped in a new range, then that range has a `source`
- *      property for returning the string that's currently contained within that
- *      range.
- *
+ *      Otherwise, `r` is converted to its corresponding string type and
+ *      returned.
  * See_Also:
- *      Refer to the $(MREF std, uni) docs for a reference on Unicode
- *      terminology.
- *
- *      For a range that iterates by grapheme cluster (written character) see
- *      $(REF byGrapheme, std,uni).
+ *      $(REF byGrapheme, std,uni),
+ *      $(MREF std, uni)
  */
 auto byCodeUnit(R)(R r)
 if ((isConvertibleToString!R && !isStaticArray!R) ||
