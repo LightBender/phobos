@@ -110,9 +110,14 @@ struct CompileResult
 struct TemplateStats
 {
     ulong lines;
+    ulong summaries;
     ulong named;
     ulong sites;
+    ulong totalFromSummary;
+    ulong distinctFromSummary;
     ulong[string] namedBySymbol;
+    ulong[string] totalBySymbol;
+    ulong[string] distinctBySymbol;
 }
 
 struct SymbolStats
@@ -286,31 +291,96 @@ TemplateStats parseVtemplates(string output)
         if (!line.length)
             continue;
         stats.lines++;
-        const indented = line.startsWith(" ") || line.startsWith("\t");
-        if (!indented && line.canFind("!"))
+
+        auto vt = line.indexOf("vtemplate:");
+        if (vt < 0)
+            continue;
+        auto rest = line[vt + "vtemplate:".length .. $].stripLeft;
+
+        ulong total, distinct;
+        string sig;
+        if (tryParseSummary(rest, total, distinct, sig))
         {
-            auto current = templateName(line);
+            stats.summaries++;
+            stats.totalFromSummary += total;
+            stats.distinctFromSummary += distinct;
+            const name = templateIdent(sig);
+            if (name.length)
+            {
+                stats.totalBySymbol[name] = stats.totalBySymbol.get(name, 0) + total;
+                stats.distinctBySymbol[name] = stats.distinctBySymbol.get(name, 0) + distinct;
+            }
+        }
+        else if (auto inst = parseInstance(rest))
+        {
             stats.named++;
             stats.sites++;
-            if (current.length)
-                stats.namedBySymbol[current] = stats.namedBySymbol.get(current, 0) + 1;
-        }
-        else if (indented)
-        {
-            stats.sites++;
+            const name = templateIdent(inst);
+            if (name.length)
+                stats.namedBySymbol[name] = stats.namedBySymbol.get(name, 0) + 1;
         }
     }
     return stats;
 }
 
-string templateName(string line)
+bool tryParseSummary(string rest, ref ulong total, ref ulong distinct, ref string sig)
 {
-    auto bang = line.lastIndexOf('!');
-    if (bang <= 0)
-        return null;
-    auto head = line[0 .. bang];
+    // 39 (30 distinct) instantiation(s) of template `NAME` found, they are:
+    enum marker = "instantiation(s) of template `";
+    auto ofT = rest.indexOf(marker);
+    if (ofT < 0)
+        return false;
+    auto head = rest[0 .. ofT].strip;
+    auto open = head.indexOf('(');
+    if (open <= 0)
+        return false;
+    total = toUlong(head[0 .. open].strip);
+    auto distTok = head[open + 1 .. $];
+    auto distEnd = distTok.indexOf(" distinct");
+    if (distEnd <= 0)
+        return false;
+    distinct = toUlong(distTok[0 .. distEnd].strip);
+
+    auto start = ofT + marker.length;
+    auto stop = rest.indexOf('`', start);
+    if (stop < 0)
+        return false;
+    sig = rest[start .. stop];
+    return true;
+}
+
+string parseInstance(string rest)
+{
+    foreach (prefix; ["implicit instance `", "explicit instance `"])
+    {
+        if (rest.startsWith(prefix))
+        {
+            auto start = prefix.length;
+            auto stop = rest.indexOf('`', start);
+            return stop > start ? rest[start .. stop] : null;
+        }
+    }
+    return null;
+}
+
+string templateIdent(string sig)
+{
+    auto cut = sig.indexOfAny("!(");
+    auto head = cut >= 0 ? sig[0 .. cut] : sig;
     auto dot = head.lastIndexOf('.');
     return dot >= 0 ? head[dot + 1 .. $] : head;
+}
+
+ulong toUlong(string s)
+{
+    ulong n;
+    foreach (c; s)
+    {
+        if (c < '0' || c > '9')
+            break;
+        n = n * 10 + (c - '0');
+    }
+    return n;
 }
 
 SymbolStats collectSymbols(string objPath, string[] needles)
@@ -378,25 +448,34 @@ string renderReport(Options opt, CompileResult oldRes, CompileResult newRes, str
     app.put("## `-vtemplates=list-instances`\n\n");
     app.put("| | old | new | delta |\n|---|---:|---:|---:|\n");
     app.put(row("log lines", oldRes.templates.lines, newRes.templates.lines));
-    app.put(row("named instantiations", oldRes.templates.named, newRes.templates.named));
-    app.put(row("instance sites", oldRes.templates.sites, newRes.templates.sites));
-    app.put("\nNamed instantiations are unique `name!args` lines. Instance sites include indented locations under `-vtemplates=list-instances`.\n\n");
+    app.put(row("summary records", oldRes.templates.summaries, newRes.templates.summaries));
+    app.put(row("total instantiations", oldRes.templates.totalFromSummary, newRes.templates.totalFromSummary));
+    app.put(row("distinct instantiations (sum)", oldRes.templates.distinctFromSummary, newRes.templates.distinctFromSummary));
+    app.put(row("instance lines", oldRes.templates.named, newRes.templates.named));
+    app.put("\n`total instantiations` and `distinct instantiations (sum)` come from DMD summary lines of the form `N (M distinct) instantiation(s) of template`. Distinct is summed across overloads, so it is an upper bound on unique bodies.\n\n");
 
-    auto names = (oldRes.templates.namedBySymbol.keys ~ newRes.templates.namedBySymbol.keys)
-        .sort.uniq.array;
-    if (names.length)
+    enum focus = [
+        "stride", "strideBack", "codeLength", "isValidUTF", "isValidUTFImpl",
+        "validate", "validateImpl", "decode", "decodeImpl", "decodeFront",
+        "decodeBack", "byUTF"
+    ];
+    app.put("### Focused APIs (DMD summary totals / distinct)\n\n");
+    app.put("| name | old total | new total | Δ total | old distinct | new distinct | Δ distinct |\n");
+    app.put("|---|---:|---:|---:|---:|---:|---:|\n");
+    foreach (n; focus)
     {
-        app.put("### Distinct instantiations by name\n\n");
-        app.put("| name | old | new | delta |\n|---|---:|---:|---:|\n");
-        foreach (n; names)
+        const ot = oldRes.templates.totalBySymbol.get(n, 0);
+        const nt = newRes.templates.totalBySymbol.get(n, 0);
+        const od = oldRes.templates.distinctBySymbol.get(n, 0);
+        const nd = newRes.templates.distinctBySymbol.get(n, 0);
+        if (ot || nt || od || nd)
         {
-            const o = oldRes.templates.namedBySymbol.get(n, 0);
-            const nw = newRes.templates.namedBySymbol.get(n, 0);
-            if (o || nw)
-                app.put(row("`" ~ n ~ "`", o, nw));
+            app.put(format("| `%s` | %s | %s | %+d | %s | %s | %+d |\n",
+                n, ot, nt, cast(long) nt - cast(long) ot,
+                od, nd, cast(long) nd - cast(long) od));
         }
-        app.put("\n");
     }
+    app.put("\n");
 
     if (oldRes.symbols.available || newRes.symbols.available)
     {
