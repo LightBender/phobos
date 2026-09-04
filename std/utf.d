@@ -4462,17 +4462,17 @@ if (isSomeChar!C)
     else:
 
     auto ref byUTF(R)(R r)
-    if (isAutodecodableString!R && isInputRange!R && isSomeChar!(ElementEncodingType!R))
+    if (isInputRange!R && isSomeChar!(ElementEncodingType!R))
     {
-        return byUTF(r.byCodeUnit());
-    }
+        static if (isAutodecodableString!R)
+            auto units = r.byCodeUnit();
+        else
+            auto units = r;
 
-    auto ref byUTF(R)(R r)
-    if (!isAutodecodableString!R && isInputRange!R && isSomeChar!(ElementEncodingType!R))
-    {
-        static if (is(immutable ElementEncodingType!R == immutable RC, RC) && is(RC == C))
+        alias U = typeof(units);
+        static if (is(immutable ElementEncodingType!U == immutable RC, RC) && is(RC == C))
         {
-            return r.byCodeUnit();
+            return units.byCodeUnit();
         }
         else static if (is(C == dchar))
         {
@@ -4480,20 +4480,20 @@ if (isSomeChar!C)
             {
                 enum Empty = uint.max;  // range is empty or just constructed
 
-                this(return scope R r)
+                this(return scope U r)
                 {
                     this.r = r;
                 }
 
-                this(return scope R r, uint buff)
+                this(return scope U r, uint buff)
                 {
                     this.r = r;
                     this.buff = buff;
                 }
 
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                 {
-                    this(return scope R r, uint frontBuff, uint backBuff)
+                    this(return scope U r, uint frontBuff, uint backBuff)
                     {
                         this.r = r;
                         this.buff = frontBuff;
@@ -4503,7 +4503,7 @@ if (isSomeChar!C)
 
                 @property bool empty()
                 {
-                    static if (isBidirectionalRange!R)
+                    static if (isBidirectionalRange!U)
                         return buff == Empty && backBuff == Empty && r.empty;
                     else
                         return buff == Empty && r.empty;
@@ -4539,11 +4539,11 @@ if (isSomeChar!C)
                     buff = Empty;
                 }
 
-                static if (isForwardRange!R)
+                static if (isForwardRange!U)
                 {
                     @property auto save()
                     {
-                        static if (isBidirectionalRange!R)
+                        static if (isBidirectionalRange!U)
                         {
                             return Result(r.save, buff, backBuff);
                         }
@@ -4554,7 +4554,7 @@ if (isSomeChar!C)
                     }
                 }
 
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                 {
                     @property dchar back() scope // 'scope' required by call to decodeBack() below
                     {
@@ -4589,24 +4589,24 @@ if (isSomeChar!C)
 
             private:
 
-                R r;
+                U r;
                 uint buff = Empty;      // one character lookahead buffer
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                     uint backBuff = Empty;
             }
 
-            return Result(r);
+            return Result(units);
         }
         else
         {
             static struct Result
             {
-                this(return scope R r)
+                this(return scope U r)
                 {
                     this.r = r;
                 }
 
-                this(return scope R r, ushort pos, ushort fill, C[4 / C.sizeof] buf)
+                this(return scope U r, ushort pos, ushort fill, C[4 / C.sizeof] buf)
                 {
                     this.r = r;
                     this.pos = pos;
@@ -4614,9 +4614,9 @@ if (isSomeChar!C)
                     this.buf = buf;
                 }
 
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                 {
-                    this(return scope R r, ushort frontPos, ushort frontFill,
+                    this(return scope U r, ushort frontPos, ushort frontFill,
                          ushort backPos, ushort backFill, C[4 / C.sizeof] buf)
                     {
                         this.r = r;
@@ -4630,7 +4630,7 @@ if (isSomeChar!C)
 
                 @property bool empty()
                 {
-                    static if (isBidirectionalRange!R)
+                    static if (isBidirectionalRange!U)
                         return pos == fill && backPos == backFill && r.empty;
                     else
                         return pos == fill && r.empty;
@@ -4675,11 +4675,11 @@ if (isSomeChar!C)
                     ++pos;
                 }
 
-                static if (isForwardRange!R)
+                static if (isForwardRange!U)
                 {
                     @property auto save()
                     {
-                        static if (isBidirectionalRange!R)
+                        static if (isBidirectionalRange!U)
                         {
                             return Result(r.save, pos, fill, backPos, backFill, buf);
                         }
@@ -4690,7 +4690,7 @@ if (isSomeChar!C)
                     }
                 }
 
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                 {
                     @property auto back() scope // 'scope' required by call to decodeBack() below
                     {
@@ -4733,14 +4733,14 @@ if (isSomeChar!C)
 
             private:
 
-                R r;
+                U r;
                 ushort pos, fill;
-                static if (isBidirectionalRange!R)
+                static if (isBidirectionalRange!U)
                     ushort backPos, backFill;
                 C[4 / C.sizeof] buf = void;
             }
 
-            return Result(r);
+            return Result(units);
         }
     }
 }
