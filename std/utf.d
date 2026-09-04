@@ -3737,11 +3737,12 @@ enum dchar replacementDchar = '\uFFFD';
  *      unchanged. This includes types that are both ranges and implicitly
  *      convertible to a string; no conversion is performed.
  *
- *      Otherwise, `r` is converted to its corresponding string type and
- *      returned.
+ *      Otherwise, `r` is converted to its corresponding string type. 
+ *      If the string is a array of `dchar`` it is returned as-is, otherwise it
+ *      is wrapped in a range of its code units.
  * See_Also:
- *      $(REF byGrapheme, std,uni),
- *      $(MREF std, uni)
+ *      $(LREF byUTF),
+ *      $(REF byGrapheme, std, uni)
  */
 auto byCodeUnit(R)(R r)
 if ((isConvertibleToString!R && !isStaticArray!R) ||
